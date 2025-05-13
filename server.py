@@ -1,21 +1,10 @@
-"""
-server.py
-
-Serves a single-player Battleship session to one connected client.
-Game logic is handled entirely on the server using battleship.py.
-Client sends FIRE commands, and receives game feedback.
-
-TODO: For Tier 1, item 1, you don't need to modify this file much. 
-The core issue is in how the client handles incoming messages.
-However, if you want to support multiple clients (i.e. progress through further Tiers), you'll need concurrency here too.
-"""
-
 import socket
 import threading
 import queue
 from battleship import run_single_player_game_online, run_multi_player_round, DisconnectError
 
 incoming = queue.Queue()
+returning_players = queue.Queue()
 
 
 HOST = '127.0.0.1'
@@ -71,8 +60,10 @@ def handle_game_clients(connectedPlayers):
             with pause_clients: 
                 connectedPlayers.clear()
                 for player in still_connected:
-                    connectedPlayers.append(player)
-                    incoming.put(player)
+                    #connectedPlayers.append(player)
+                    returning_players.put(player)
+                    # assume someone disconnected? 
+                    send_server_message(player, "Finding someone new to play a game with you!")
 
             break
 
@@ -85,7 +76,13 @@ def manage_queues():
 
     while True: 
         print("Length of connected Players:", len(connectedPlayers), " and len of clientStorage: ", len(clientStorage))
-        player = incoming.get()
+        try: 
+            player = returning_players.get_nowait()
+            print("Added the returning player again!")
+        except queue.Empty:
+            player = incoming.get()
+            print("Pulled from regular queue.")
+
         with pause_clients:
             # If there aren't enough players in the game. 
             if len(connectedPlayers) < 2:
