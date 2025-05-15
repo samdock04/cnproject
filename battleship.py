@@ -22,7 +22,8 @@ SHIPS = [
 
 class DisconnectError(Exception):
     "Raised exception to deal with disconnected user."
-    pass
+    def __init__(self, player):
+        self.player = player
 
 
 class Board:
@@ -446,15 +447,17 @@ def run_multi_player_round(clientOne, clientTwo):
             print("Received ", guess)
         except:
             print("[SERVERINFO] The current player disconnected.")
-            send("Your opponent quit or forfeited! You win!", otherUser["writeFile"])
+            #send("Your opponent quit or forfeited! You win!", otherUser["writeFile"])
             # end the game break
+            raise DisconnectError
             break 
 
         if guess.lower() == 'quit':
             send("Thanks for playing. Goodbye.", currentUser["writeFile"])
+            currentUser["connection"].shutdown(socket.SHUT_RDWR)
+            currentUser["connection"].close()
             send("Your opponent quit or forfeited! You win!", otherUser["writeFile"])
-            # end the game
-            break
+            raise DisconnectError(currentUser)
 
         try:
             row, col = parse_coordinate(guess)
