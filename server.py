@@ -1,24 +1,3 @@
-"""
-server.py
-
-Serves a single-player Battleship session to one connected client.
-Game logic is handled entirely on the server using battleship.py.
-Client sends FIRE commands, and receives game feedback.
-
-TODO: For Tier 1, item 1, you don't need to modify this file much. 
-The core issue is in how the client handles incoming messages.
-However, if you want to support multiple clients (i.e. progress through further Tiers), you'll need concurrency here
-server.py
-
-Serves a single-player Battleship session to one connected client.
-Game logic is handled entirely on the server using battleship.py.
-Client sends FIRE commands, and receives game feedback.
-
-TODO: For Tier 1, item 1, you don't need to modify this file much. 
-The core issue is in how the client handles incoming messages.
-However, if you want to support multiple clients (i.e. progress through further Tiers), you'll need concurrency here too.
-"""
-
 import socket
 import threading
 import queue
@@ -29,7 +8,7 @@ returning_players = queue.Queue()
 
 
 HOST = '127.0.0.1'
-PORT = 5000
+PORT = 5005
 global clients 
 global gameOver
 global connectedPlayers 
@@ -61,22 +40,29 @@ def handle_game_clients(connectedPlayers):
             for player in connectedPlayers:
                 while True:
                     try:
-                        send_server_message(player, "[!] The game is over. Do you want to play again? [y/n]")
-                        prompt = player["readFile"].readline().strip().lower()
+                        player["writeFile"].write("[!] The game is over. Do you want to play again? [y/n]\n")
+                        player["writeFile"].flush()
+                        prompt = player["readFile"].readline()
+                        if not prompt:
+                            raise ConnectionError("Player disconnected")
+                        prompt = prompt.strip().lower()
                         if prompt == 'y':
-                            # Keep the player in the game
                             still_connected.append(player)
                             break
                         elif prompt == 'n':
                             player["connection"].close()
                             break
                         else:
-                            send_server_message(player, "Please type [y/n].")
-                    except:
-                        print("Player is not connected as there was an error asking them to play again.")
-                        #Do we have to try close the connection again?? 
-                        player["connection"].close()
+                            player["writeFile"].write("Please type [y/n].\n")
+                            player["writeFile"].flush()
+                    except Exception as e:
+                        print("[SERVERINFO] Could not prompt player — assumed disconnected.")
+                        try:
+                            player["connection"].close()
+                        except:
+                            pass
                         break
+            
             # Threads keep mucking up these lists
             with pause_clients: 
                 connectedPlayers.clear()
@@ -87,6 +73,7 @@ def handle_game_clients(connectedPlayers):
                     send_server_message(player, "Finding someone new to play a game with you!")
 
             break
+    print("[SERVERINFO] Game thread ended. Waiting for new players...")
 
 
 def manage_queues():

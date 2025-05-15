@@ -12,7 +12,7 @@ import threading
 import time
 
 HOST = '127.0.0.1'
-PORT = 5000
+PORT = 5005
 
 # HINT: The current problem is that the client is reading from the socket,
 # then waiting for user input, then reading again. This causes server
@@ -45,9 +45,8 @@ def main():
         try:
 
                 # use the threading event to stop input from being allowed until we receive something. 
-           
             while not exited: 
-                #print("Exited is currently", str(exited))
+                print("Exited is currently", str(exited))
                 stopInput.wait()
                 user_input = input("Your turn >>")
                 wfile.write(user_input + '\n')
@@ -60,12 +59,15 @@ def main():
             s.shutdown(socket.SHUT_RDWR) 
             s.close()
             t1.join()
-            exit()
 
 
         except KeyboardInterrupt:
             print("\n[INFO] Client exiting.")
-            s.shutdown(socket.SHUT_RDWR) 
+            try:
+                s.shutdown(socket.SHUT_RDWR) 
+            except:
+                print("[INFO] Server already closed.")
+                pass
             s.close()
             t1.join()
             exit()
@@ -90,9 +92,8 @@ def receive_messages(rfile):
                 stopInput.set()
             # if the server is responding to 'quit', or if the server disconnected. 
             elif "Thanks for playing" in line or "Server disconnected" in line: 
-                print("[CLIENT INFO] You've left the game.")
-                exited = 1
-            elif "play again" in line: 
+               print("[CLIENT INFO] You've left the game.")
+            elif "Play again" in line: 
                 stopInput.set()
 
             print(line.strip())

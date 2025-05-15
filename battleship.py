@@ -22,8 +22,7 @@ SHIPS = [
 
 class DisconnectError(Exception):
     "Raised exception to deal with disconnected user."
-    def __init__(self, player):
-        self.player = player
+    pass
 
 
 class Board:
@@ -381,8 +380,12 @@ def run_multi_player_round(clientOne, clientTwo):
 
     def send(msg, wfile): 
         #print("Type for wfile: ", type(wfile))
-        wfile.write(msg+"\n")
-        wfile.flush()
+        try:
+            wfile.write(msg+"\n")
+            wfile.flush()
+        except (BrokenPipeError, OSError) as e:
+            print("[SERVERERROR] Could not send message to client. Client may have disconnected.")
+            raise DisconnectError("Client disconnected.")
 
     def send_board(board, clientWFile):
         clientWFile.write("GRID\n")
@@ -430,88 +433,103 @@ def run_multi_player_round(clientOne, clientTwo):
 
     invalidInput = 0
 
-    while True:
+    gameOver = False
 
-        # if invalidInput is 1, it's the current user's second+ attempt, so we've already received this message.
-        if invalidInput == 0: 
-            send("It's your opponent's turn, hang tight!", otherUser["writeFile"])
-            send_board(otherUser["board"], currentUser["writeFile"])
-            send("It's your turn! Enter coordinate to fire at (e.g. B5):", currentUser["writeFile"])
+    try:    
+        while True:
 
-        # set back to 1 later if we need to prompt the user again / they need another go. 
-        invalidInput = 0
-       
-        #send the opponent board to the current user
-        try:
-            guess = recv(currentUser["readFile"])
-            print("Received ", guess)
-        except:
-            print("[SERVERINFO] The current player disconnected.")
-            #send("Your opponent quit or forfeited! You win!", otherUser["writeFile"])
-            # end the game break
-            raise DisconnectError
-            break 
+            # if invalidInput is 1, it's the current user's second+ attempt, so we've already received this message.
+            if invalidInput == 0: 
+                send("It's your opponent's turn, hang tight!", otherUser["writeFile"])
+                send_board(otherUser["board"], currentUser["writeFile"])
+                send("It's your turn! Enter coordinate to fire at (e.g. B5):", currentUser["writeFile"])
 
-        if guess.lower() == 'quit':
-            send("Thanks for playing. Goodbye.", currentUser["writeFile"])
-            currentUser["connection"].shutdown(socket.SHUT_RDWR)
-            currentUser["connection"].close()
-            send("Your opponent quit or forfeited! You win!", otherUser["writeFile"])
-            raise DisconnectError(currentUser)
-
-        try:
-            row, col = parse_coordinate(guess)
-            result, sunk_name = otherUser["board"].fire_at(row, col)
-            # May need to move this as we don't want the move to count? 
-            currentUser["moves"] += 1
-
-            if result == 'hit':
-                if sunk_name:
-                    send(f"HIT! You sank the {sunk_name}!",  currentUser["writeFile"])
-                else:
-                    send("HIT!", currentUser["writeFile"])
-                    send("Your opponent hit!", otherUser["writeFile"])
-                if otherUser["board"].all_ships_sunk():
-                    send_board(otherUser["board"])
-                    send(f"Congratulations! You sank all ships in {moves} moves.", currentUser["writeFile"])
-                    send_to_both("The game is over. Would you like to play again?")
-            elif result == 'miss':
-                send("MISS!",  currentUser["writeFile"])
-                send("Your opponent missed!", otherUser["writeFile"])
-            elif result == 'already_shot':
-                send("You've already fired at that location.", currentUser["writeFile"])
-        except ValueError as e:
-            send(f"Invalid input: Your coordinate should take the format (letter,number)",  currentUser["writeFile"])
-            currentUser["moves"] -=1 
-            invalidInput = 1
-        except IndexError as e: 
-            send(f"Invalid input, your number and letter should be on the grid!", currentUser["writeFile"])
-            currentUser["moves"] -=1 
-            invalidInput = 1
+            # set back to 1 later if we need to prompt the user again / they need another go. 
+            invalidInput = 0
         
-        #don't change the current users, as we want to give the user another turn. 
-        if invalidInput == 1:
-           # print("This should be sending the input prompt back to the user who entered incorrectly...")
-            pass 
-         #don't change the current users
-        else:
-            if currentUser == clientOne: 
-                currentUser = clientTwo
-                otherUser = clientOne
+            #send the opponent board to the current user
+            try:
+                guess = recv(currentUser["readFile"])
+                print("Received ", guess)
+            except:
+                print("[SERVERINFO] The current player disconnected.")
+                try:
+                    send("Your opponent quit or forfeited! You win!", otherUser["writeFile"])
+                except:
+                    print("[SERVERINFO] The other player also disconnected.")
+                print("HELLOOOO")
+                # end the game break
+                raise DisconnectError("Client disconnected.")
+            
+
+            if guess.lower() == 'quit':
+                send("Thanks for playing. Goodbye.", currentUser["writeFile"])
+                send("Your opponent quit or forfeited! You win!", otherUser["writeFile"])
+                # end the game
+                break
+
+            try:
+                row, col = parse_coordinate(guess)
+                result, sunk_name = otherUser["board"].fire_at(row, col)
+                # May need to move this as we don't want the move to count? 
+                currentUser["moves"] += 1
+
+                if result == 'hit':
+                    if sunk_name:
+                        send(f"HIT! You sank the {sunk_name}!",  currentUser["writeFile"])
+                    else:
+                        send("HIT!", currentUser["writeFile"])
+                        send("Your opponent hit!", otherUser["writeFile"])
+                    if otherUser["board"].all_ships_sunk():
+                        send_board(otherUser["board"])
+                        send(f"Congratulations! You sank all ships in {moves} moves.", currentUser["writeFile"])
+                        send_to_both("The game is over. Would you like to play again?")
+                elif result == 'miss':
+                    send("MISS!",  currentUser["writeFile"])
+                    send("Your opponent missed!", otherUser["writeFile"])
+                elif result == 'already_shot':
+                    send("You've already fired at that location.", currentUser["writeFile"])
+            except ValueError as e:
+                send(f"Invalid input: Your coordinate should take the format (letter,number)",  currentUser["writeFile"])
+                currentUser["moves"] -=1 
+                invalidInput = 1
+            except IndexError as e: 
+                send(f"Invalid input, your number and letter should be on the grid!", currentUser["writeFile"])
+                currentUser["moves"] -=1 
+                invalidInput = 1
+            
+            #don't change the current users, as we want to give the user another turn. 
+            if invalidInput == 1:
+            # print("This should be sending the input prompt back to the user who entered incorrectly...")
+                pass 
+            #don't change the current users
             else:
-                currentUser = clientOne
-                otherUser = clientTwo
-        
+                if currentUser == clientOne: 
+                    currentUser = clientTwo
+                    otherUser = clientOne
+                else:
+                    currentUser = clientOne
+                    otherUser = clientTwo
+            
 
-        
-        # once they have both places boards, the game can begin: 
+            
+            # once they have both places boards, the game can begin: 
 
-        # server prompts player one. 
-        # player one makes a move on player 2's board. 
-        # Server responds to both player 1 and player 2 with effectively same message
-        # Server prompts player two.
-        # Player 2 makes a move on player 1's board. 
-        # etc. 
+            # server prompts player one. 
+            # player one makes a move on player 2's board. 
+            # Server responds to both player 1 and player 2 with effectively same message
+            # Server prompts player two.
+            # Player 2 makes a move on player 1's board. 
+            # etc. 
+    except DisconnectError:
+        print("[SERVERINFO] A player disconnected. Ending game loop.")
+        try:
+            send("Your opponent quit or forfeited! You win!", otherUser["writeFile"])
+        except:
+            print("[SERVERINFO] The other player also disconnected.")
+        print("did it reach here")
+        return
+
 
 if __name__ == "__main__":
     # Optional: run this file as a script to test single-player mode
