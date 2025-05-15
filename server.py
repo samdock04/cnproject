@@ -1,3 +1,24 @@
+"""
+server.py
+
+Serves a single-player Battleship session to one connected client.
+Game logic is handled entirely on the server using battleship.py.
+Client sends FIRE commands, and receives game feedback.
+
+TODO: For Tier 1, item 1, you don't need to modify this file much. 
+The core issue is in how the client handles incoming messages.
+However, if you want to support multiple clients (i.e. progress through further Tiers), you'll need concurrency here
+server.py
+
+Serves a single-player Battleship session to one connected client.
+Game logic is handled entirely on the server using battleship.py.
+Client sends FIRE commands, and receives game feedback.
+
+TODO: For Tier 1, item 1, you don't need to modify this file much. 
+The core issue is in how the client handles incoming messages.
+However, if you want to support multiple clients (i.e. progress through further Tiers), you'll need concurrency here too.
+"""
+
 import socket
 import threading
 import queue
