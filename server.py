@@ -83,19 +83,20 @@ def handle_game_clients(connectedPlayers):
             for player in connectedPlayers:
                 try:
                     player["connection"].send(b'')  # will raise error if socket is closed
+                    player["writeFile"].write("[!] The game is over. Do you want to play again? [y/n]\n")
+                    player["writeFile"].flush()
                 except:
                     print(f"[SERVERINFO] Skipping prompt for disconnected player: {player}")
                     continue
 
+            for player in connectedPlayers:
                 while True:
                     try:
-                        #print(gameOverPrompt[0])
-                        player["writeFile"].write("[!] The game is over. Do you want to play again? [y/n]\n")
-                        player["writeFile"].flush()
                         prompt = player["readFile"].readline()
                         if not prompt:
                             raise ConnectionError("Player disconnected")
                         prompt = prompt.strip().lower()
+
                         if prompt == 'y':
                             still_connected.append(player)
                             break
