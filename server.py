@@ -1,18 +1,22 @@
 import socket
 import threading
 import queue
+import time
 from battleship import run_single_player_game_online, run_multi_player_round, DisconnectError
+from shared import last_move_time, gameOverPrompt
 
 incoming = queue.Queue()
 returning_players = queue.Queue()
 
 
 HOST = '127.0.0.1'
-PORT = 5005
+PORT = 5002
 global clients 
 global gameOver
 global connectedPlayers 
 pause_clients = threading.Lock()
+
+TIMEOUT_SECS = 10
 
 
 # Send non-game related info, e.g to keep the connection up or to inform new clients of the wait time. 
@@ -29,6 +33,45 @@ def handle_game_clients(connectedPlayers):
     # Get the queue of people waiting to play. 
     global clientStorage
 
+    for client in connectedPlayers:
+        last_move_time[client["connection"]] = time.time()
+
+    gameOverPrompt[0] = False
+    
+    def monitor_timeout(player, opponent):
+        while True:
+            time.sleep(1)
+            if time.time() - last_move_time[player["connection"]] > TIMEOUT_SECS:
+                try:
+                    player["writeFile"].write("[!] Timeout! You have forfeited. Disconnecting...\n")
+                    player["writeFile"].flush()
+
+                    opponent["writeFile"].write("[!] Opponent has forfeited due to inactivity. You win!!\n")
+                    opponent["writeFile"].flush()
+                except:
+                    pass
+
+                print(f"[SERVERINFO] Timeout for {player['connection']}. Forfeit...prompting.")
+                gameOverPrompt[0] = True
+                break
+
+
+                """
+                try:
+                    player["connection"].close()
+                except:
+                    pass
+                try:
+                    opponent["connection"].close()
+                except:
+                    pass
+                print(f"[SERVERINFO] Timeout for {client['connection']}. Forfeit...disconnecting.")
+                break
+                """
+
+    t1 = threading.Thread(target=monitor_timeout, args=(connectedPlayers[0], connectedPlayers[1]))
+    t1.start()
+
     while True:
         try:
             print("[INFO] A game has started on this server!")
@@ -38,8 +81,15 @@ def handle_game_clients(connectedPlayers):
         finally: 
             still_connected = []
             for player in connectedPlayers:
+                try:
+                    player["connection"].send(b'')  # will raise error if socket is closed
+                except:
+                    print(f"[SERVERINFO] Skipping prompt for disconnected player: {player}")
+                    continue
+
                 while True:
                     try:
+                        #print(gameOverPrompt[0])
                         player["writeFile"].write("[!] The game is over. Do you want to play again? [y/n]\n")
                         player["writeFile"].flush()
                         prompt = player["readFile"].readline()
