@@ -156,7 +156,7 @@ def manage_queues():
     # continuously manage the queues and games. 
 
     while True: 
-        print("Length of connected Players:", len(connectedPlayers), " and len of clientStorage: ", len(clientStorage))
+        #print("Length of connected Players:", len(connectedPlayers), " and len of clientStorage: ", len(clientStorage))
         try: 
             player = returning_players.get_nowait()
             print("Added the returning player again!")
@@ -172,6 +172,7 @@ def manage_queues():
             # If there aren't enough players in the game. 
             if len(connectedPlayers) < 2:
                 if len(clientStorage) != 0:
+                    print("Length of connected Players:", len(connectedPlayers), " and len of clientStorage: ", len(clientStorage))
                     print("Someone was waiting in the queue, adding them to the game and this connection to the queue.")
                     newPlayerConnected = clientStorage.pop(0) # queue data structure instead of stack
                     connectedPlayers.append(newPlayerConnected)
@@ -185,14 +186,17 @@ def manage_queues():
                 print("After sorting, length of connected Players:", len(connectedPlayers), " and len of clientStorage: ", len(clientStorage))
                 
                 if len(connectedPlayers) == 2:
+                    print("Length of connected Players:", len(connectedPlayers), " and len of clientStorage: ", len(clientStorage))
                     gameThread = threading.Thread(target=handle_game_clients, args=(connectedPlayers,))
                     gameThread.start()
                     print("[SERVERINFO] Game started on the server!")
                 elif len(connectedPlayers) == 1:
+                    print("Length of connected Players:", len(connectedPlayers), " and len of clientStorage: ", len(clientStorage))
                     send_server_message(player, "Waiting on another person to join the game...!")
                 else:
                     pass
             else:
+                print("Length of connected Players:", len(connectedPlayers), " and len of clientStorage: ", len(clientStorage))
                 print("[SEVERINFO] Game is in progress, adding this client to the queue. ")
                 clientStorage.append(player)
                 send_server_message(player, "[SERVERINFO] Thanks for joining - game in progress, you'll join when someone disconnects or a new game starts.")
