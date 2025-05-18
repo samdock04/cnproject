@@ -9,6 +9,12 @@ Contains core data structures and logic for Battleship, including:
 """
 
 import random
+from shared import last_move_time, gameOverPrompt
+import socket
+import threading
+import queue
+import time
+import select
 
 BOARD_SIZE = 10
 SHIPS = [
@@ -378,6 +384,8 @@ def run_single_player_game_online(rfile, wfile):
 
 def run_multi_player_round(clientOne, clientTwo):
 
+    sendWaitMsg = False
+
     def send(msg, wfile): 
         #print("Type for wfile: ", type(wfile))
         try:
@@ -433,14 +441,17 @@ def run_multi_player_round(clientOne, clientTwo):
 
     invalidInput = 0
 
-    gameOver = False
 
     try:    
-        while True:
+        while not gameOverPrompt[0]:
+
+            if gameOverPrompt[0]:
+                break
 
             # if invalidInput is 1, it's the current user's second+ attempt, so we've already received this message.
-            if invalidInput == 0: 
+            if invalidInput == 0 and not sendWaitMsg: 
                 send("It's your opponent's turn, hang tight!", otherUser["writeFile"])
+                sendWaitMsg = True
                 send_board(otherUser["board"], currentUser["writeFile"])
                 send("It's your turn! Enter coordinate to fire at (e.g. B5):", currentUser["writeFile"])
 
@@ -449,8 +460,24 @@ def run_multi_player_round(clientOne, clientTwo):
         
             #send the opponent board to the current user
             try:
+
+                sock = currentUser["connection"]
+                rfile = currentUser["readFile"]
+                
+
+                # wait up to 1 second for the user to enter input
+                ready, _, _ = select.select([sock], [], [], 1.0)
+                if gameOverPrompt[0]:
+                    break
+                if not ready:
+                    continue
+
+                print(gameOverPrompt)
                 guess = recv(currentUser["readFile"])
                 print("Received ", guess)
+
+                last_move_time[currentUser["connection"]] = time.time()
+
             except:
                 print("[SERVERINFO] The current player disconnected.")
                 try:
@@ -465,6 +492,7 @@ def run_multi_player_round(clientOne, clientTwo):
             if guess.lower() == 'quit':
                 send("Thanks for playing. Goodbye.", currentUser["writeFile"])
                 send("Your opponent quit or forfeited! You win!", otherUser["writeFile"])
+                gameOverPrompt[0] = True
                 # end the game
                 break
 
@@ -484,6 +512,8 @@ def run_multi_player_round(clientOne, clientTwo):
                         send_board(otherUser["board"])
                         send(f"Congratulations! You sank all ships in {moves} moves.", currentUser["writeFile"])
                         send_to_both("The game is over. Would you like to play again?")
+                        gameOverPrompt[0] = True
+                        return
                 elif result == 'miss':
                     send("MISS!",  currentUser["writeFile"])
                     send("Your opponent missed!", otherUser["writeFile"])
@@ -510,6 +540,8 @@ def run_multi_player_round(clientOne, clientTwo):
                 else:
                     currentUser = clientOne
                     otherUser = clientTwo
+
+                sendWaitMsg = False
             
 
             
@@ -528,7 +560,9 @@ def run_multi_player_round(clientOne, clientTwo):
         except:
             print("[SERVERINFO] The other player also disconnected.")
         print("did it reach here")
-        return
+
+        gameOverPrompt[0] = True
+        raise Exception("Game ended due to disconnect or timeout")
 
 
 if __name__ == "__main__":

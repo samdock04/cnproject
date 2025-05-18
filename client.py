@@ -12,7 +12,7 @@ import threading
 import time
 
 HOST = '127.0.0.1'
-PORT = 5005
+PORT = 5002
 
 # HINT: The current problem is that the client is reading from the socket,
 # then waiting for user input, then reading again. This causes server
@@ -48,6 +48,8 @@ def main():
             while not exited: 
                 print("Exited is currently", str(exited))
                 stopInput.wait()
+                if exited:
+                    break
                 user_input = input("Your turn >>")
                 wfile.write(user_input + '\n')
                 #print("Input ended!")
@@ -56,7 +58,10 @@ def main():
                 # Clear it, block input again 
                 stopInput.clear()
 
-            s.shutdown(socket.SHUT_RDWR) 
+            try:
+                s.shutdown(socket.SHUT_RDWR) 
+            except OSError:
+                print("[CLIENT INFO] Socket already closed by server.")
             s.close()
             t1.join()
 
@@ -64,11 +69,16 @@ def main():
         except KeyboardInterrupt:
             print("\n[INFO] Client exiting.")
             try:
-                s.shutdown(socket.SHUT_RDWR) 
-            except:
-                print("[INFO] Server already closed.")
+                s.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                print("[CLIENT INFO] Socket already closed by server.")
+            except Exception as e:
+                print(f"[CLIENT INFO] Socket shutdown error: {e}")
+
+            try:
+                s.close()
+            except Exception:
                 pass
-            s.close()
             t1.join()
             exit()
 
@@ -82,7 +92,9 @@ def receive_messages(rfile):
         while True:
             line = rfile.readline()
             if not line:
-                print("[INFO] Server disconnected.")
+                #print("[INFO] Server disconnected.")
+                exited = 1
+                stopInput.set()
                 break
             elif "Enter" in line:
                 # open input as the server has prompted you to enter. 
@@ -93,7 +105,10 @@ def receive_messages(rfile):
             # if the server is responding to 'quit', or if the server disconnected. 
             elif "Thanks for playing" in line or "Server disconnected" in line: 
                print("[CLIENT INFO] You've left the game.")
-            elif "Play again" in line: 
+            elif "play again" in line: 
+                stopInput.set()
+            elif "Timeout!" in line:
+                print("[CLIENT INFO] You've timed out.")
                 stopInput.set()
 
             print(line.strip())
