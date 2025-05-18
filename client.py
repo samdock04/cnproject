@@ -50,7 +50,7 @@ def main():
                 stopInput.wait()
                 if exited:
                     break
-                user_input = input("Your turn >>")
+                user_input = input(">> ")
                 wfile.write(user_input + '\n')
                 #print("Input ended!")
                 wfile.flush()
@@ -105,7 +105,7 @@ def receive_messages(rfile):
             # if the server is responding to 'quit', or if the server disconnected. 
             elif "Thanks for playing" in line or "Server disconnected" in line: 
                print("[CLIENT INFO] You've left the game.")
-            elif "play again" in line: 
+            elif "play again" in line or "username" in line: 
                 stopInput.set()
             elif "Timeout!" in line:
                 print("[CLIENT INFO] You've timed out.")
