@@ -382,7 +382,10 @@ def run_single_player_game_online(rfile, wfile):
 
 
 
-def run_multi_player_round(clientOne, clientTwo):
+def run_multi_player_round(clientOne, clientTwo, spectators, newGame, savedOne, savedTwo):
+
+    saveBoardOne = None
+    saveBoardTwo = None
 
     sendWaitMsg = False
 
@@ -405,6 +408,14 @@ def run_multi_player_round(clientOne, clientTwo):
         clientWFile.write('')
         clientWFile.flush()
 
+    def send_to_spectators(msg):
+        print("Sending to spectators!")
+        for spectator in spectators:
+            try:
+                send(f"[FOR_SPECTATOR:] {msg}", spectator["writeFile"])
+            except (BrokenPipeError, OSError) as e:
+                print("[SERVERERROR] Could not send message to spectator. Spectator may have disconnected.")
+
     def send_to_both(msg):
         send(msg, clientOne["writeFile"])
         send(msg, clientTwo["writeFile"])
@@ -420,24 +431,38 @@ def run_multi_player_round(clientOne, clientTwo):
     ###clientTwoBoard = BOARD_SIZE
     ###clientTwoBoard.place_ships_randomly(SHIPS)
 
+    if newGame:
 
+        boardOne = Board(BOARD_SIZE)
+        boardOne.place_ships_randomly(SHIPS)
 
-    boardOne = Board(BOARD_SIZE)
-    boardOne.place_ships_randomly(SHIPS)
+        boardTwo = Board(BOARD_SIZE)
+        boardTwo.place_ships_randomly(SHIPS)
 
-    boardTwo = Board(BOARD_SIZE)
-    boardTwo.place_ships_randomly(SHIPS)
+   
+        send_to_both("Welcome to battleships, both your boards have now been generated!!\n")
 
-    send_to_both("Welcome to battleships, both your boards have now been generated!!\n")
+        clientOne["board"] = boardOne
+        clientTwo["board"] = boardTwo
 
-    clientOne["board"] = boardOne
-    clientTwo["board"] = boardTwo
+        clientOne["moves"] = 0
+        clientTwo["moves"] = 0
 
-    clientOne["moves"] = 0
-    clientTwo["moves"] = 0
+    else:
+        # Assign boards based on username to ensure correct mapping after reconnect
+        if savedOne and savedTwo:
+            if clientOne["username"] == savedOne["owner"]:
+                clientOne["board"] = savedOne["board"]
+                clientTwo["board"] = savedTwo["board"]
+            else:
+                clientOne["board"] = savedTwo["board"]
+                clientTwo["board"] = savedOne["board"]
+        clientOne["moves"] = 0
+        clientTwo["moves"] = 0
 
     currentUser = clientOne
     otherUser = clientTwo
+    spectatorPlayer = 'Player 1'
 
     invalidInput = 0
 
@@ -505,9 +530,11 @@ def run_multi_player_round(clientOne, clientTwo):
                 if result == 'hit':
                     if sunk_name:
                         send(f"HIT! You sank the {sunk_name}!",  currentUser["writeFile"])
+                        send_to_spectators(f"{spectatorPlayer} sank {sunk_name}!")
                     else:
                         send("HIT!", currentUser["writeFile"])
                         send("Your opponent hit!", otherUser["writeFile"])
+                        send_to_spectators(f"{spectatorPlayer} hit!")
                     if otherUser["board"].all_ships_sunk():
                         send_board(otherUser["board"])
                         send(f"Congratulations! You sank all ships in {moves} moves.", currentUser["writeFile"])
@@ -517,6 +544,7 @@ def run_multi_player_round(clientOne, clientTwo):
                 elif result == 'miss':
                     send("MISS!",  currentUser["writeFile"])
                     send("Your opponent missed!", otherUser["writeFile"])
+                    send_to_spectators(f"{spectatorPlayer} missed!")
                 elif result == 'already_shot':
                     send("You've already fired at that location.", currentUser["writeFile"])
             except ValueError as e:
@@ -537,10 +565,16 @@ def run_multi_player_round(clientOne, clientTwo):
                 if currentUser == clientOne: 
                     currentUser = clientTwo
                     otherUser = clientOne
+                    spectatorPlayer = 'Player 2'
                 else:
                     currentUser = clientOne
                     otherUser = clientTwo
+                    spectatorPlayer = 'Player 1'
 
+            # if the game is over, we need to break out of the loop #after each turn, save the board state. 
+                saveBoardOne = {"owner": clientOne["username"], "board": clientOne["board"]}
+                saveBoardTwo = {"owner": clientTwo["username"], "board": clientTwo["board"]}
+            
                 sendWaitMsg = False
             
 
@@ -562,7 +596,8 @@ def run_multi_player_round(clientOne, clientTwo):
         print("did it reach here")
 
         gameOverPrompt[0] = True
-        raise Exception("Game ended due to disconnect or timeout")
+        return saveBoardOne, saveBoardTwo
+        #raise Exception("Game ended due to disconnect or timeout")
 
 
 if __name__ == "__main__":
