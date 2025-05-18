@@ -16,7 +16,7 @@ global gameOver
 global connectedPlayers 
 pause_clients = threading.Lock()
 
-TIMEOUT_SECS = 30
+TIMEOUT_SECS = 10
 
 
 # Send non-game related info, e.g to keep the connection up or to inform new clients of the wait time. 
@@ -161,17 +161,22 @@ def manage_queues():
             player = returning_players.get_nowait()
             print("Added the returning player again!")
         except queue.Empty:
-            player = incoming.get()
-            print("Pulled from regular queue.")
+            try:
+                player = incoming.get_nowait()
+            except queue.Empty:
+                time.sleep(0.2)  # ✅ avoid busy loop but still retry
+                continue
+
 
         with pause_clients:
             # If there aren't enough players in the game. 
             if len(connectedPlayers) < 2:
                 if len(clientStorage) != 0:
                     print("Someone was waiting in the queue, adding them to the game and this connection to the queue.")
-                    newPlayerConnected = clientStorage.pop()
+                    newPlayerConnected = clientStorage.pop(0)
+                    connectedPlayers.append(player)
                     connectedPlayers.append(newPlayerConnected)
-                    clientStorage.append(player)
+                    #clientStorage.append(player)
                     send_server_message(newPlayerConnected, "You've been added to the game!")
                 else: 
                     print("Adding this new connection to the game, no one was waiting in the queue. ")
