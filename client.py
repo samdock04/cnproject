@@ -58,7 +58,10 @@ def main():
                 # Clear it, block input again 
                 stopInput.clear()
 
-            s.shutdown(socket.SHUT_RDWR) 
+            try:
+                s.shutdown(socket.SHUT_RDWR) 
+            except OSError:
+                print("[CLIENT INFO] Socket already closed by server.")
             s.close()
             t1.join()
 
@@ -66,11 +69,16 @@ def main():
         except KeyboardInterrupt:
             print("\n[INFO] Client exiting.")
             try:
-                s.shutdown(socket.SHUT_RDWR) 
-            except:
-                print("[INFO] Server already closed.")
+                s.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                print("[CLIENT INFO] Socket already closed by server.")
+            except Exception as e:
+                print(f"[CLIENT INFO] Socket shutdown error: {e}")
+
+            try:
+                s.close()
+            except Exception:
                 pass
-            s.close()
             t1.join()
             exit()
 
@@ -97,7 +105,7 @@ def receive_messages(rfile):
             # if the server is responding to 'quit', or if the server disconnected. 
             elif "Thanks for playing" in line or "Server disconnected" in line: 
                print("[CLIENT INFO] You've left the game.")
-            elif "Play again" in line: 
+            elif "play again" in line: 
                 stopInput.set()
             elif "Timeout!" in line:
                 print("[CLIENT INFO] You've timed out.")

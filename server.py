@@ -27,6 +27,29 @@ def send_server_message(player, msg):
     except Exception as e:
         print("[SERVERERROR] Could not send message.")
 
+def prompt_replay(player, result_queue):
+    try:
+        while True:
+            player["writeFile"].write("[!] The game is over. Do you want to play again? [y/n]\n")
+            player["writeFile"].flush()
+            response = player["readFile"].readline()
+            if not response:
+                print(f"[REPLAY] No response from player {player['connection']}. Assuming 'n'.")
+                result_queue.put((player, 'n'))
+                return
+            response = response.strip().lower()
+            print(f"[REPLAY] Player {player['connection']} answered: {response}")
+            if response in ('y', 'n'):
+                result_queue.put((player, response))
+                print("input received.")
+                return
+            else:
+                player["writeFile"].write("Invalid input. Please type 'y' or 'n'.\n")
+                player["writeFile"].flush()
+    except Exception as e:
+        print(f"[SERVERINFO] Error while prompting replay: {e}")
+        result_queue.put((player, 'n'))
+
 def handle_game_clients(connectedPlayers):
     global clients
     global gameOver
@@ -80,52 +103,50 @@ def handle_game_clients(connectedPlayers):
     except Exception as e:
         print("Someone disconnected. Prompting both users to see who it was. ")
     finally: 
+        result_queue = queue.Queue()
+        threads = []
 
         for player in connectedPlayers:
-            try:
-                player["connection"].send(b'')  # will raise error if socket is closed
-                player["writeFile"].write("[!] The game is over. Do you want to play again? [y/n]\n")
-                player["writeFile"].flush()
-            
-            except:
-                print(f"[SERVERINFO] Player already disconnected: {player}")
-                continue
-            
+            t = threading.Thread(target=prompt_replay, args=(player, result_queue))
+            t.start()
+            threads.append(t)
+
+        #for t in threads:
+            #t.join()
+
         still_connected = []
-        for player in connectedPlayers:
-            try:
-                prompt = player["readFile"].readline()
-                if not prompt:
-                    raise ConnectionError("Player disconnected")
-                prompt = prompt.strip().lower()
+        responses_received = 0
 
-                if prompt == 'y':
-                    still_connected.append(player)
-                    send_server_message(player, "[SERVERINFO] You've been added back to the queue.")
-                elif prompt == 'n':
-                    player["connection"].close()
-                else:
-                    player["writeFile"].write("Please type [y/n].\n")
-                    player["writeFile"].flush()
+        #while not result_queue.empty():
+        while responses_received < len(connectedPlayers):
+            player, response = result_queue.get()
+            responses_received += 1
 
-            except Exception as e:
-                print("[SERVERINFO] Could not prompt player — assumed disconnected.")
+            print(f"[SERVERINFO] Received response: {response} from {player['connection']}")
+
+            if response == 'y':
+                still_connected.append(player)
+                send_server_message(player, "[SERVERINFO] You've been added back to the queue.")
+            else:
                 try:
+                    send_server_message(player, "[SERVERINFO] You are being disconnected.")
+                    print(f"Disconnecting player: {player['connection']}")
+                    player["writeFile"].flush()
+                    time.sleep(0.1)
+                    print(response)
+                    player["connection"].shutdown(socket.SHUT_RDWR)
                     player["connection"].close()
                 except:
                     pass
 
-        # Threads keep mucking up these lists
         with pause_clients:
             connectedPlayers.clear()
             for player in still_connected:
-                #connectedPlayers.append(player)
                 returning_players.put(player)
                 send_server_message(player, "Added you back to the queue. Waiting for someone else to play with you!!!!.")
-                # assume someone disconnected? 
                 send_server_message(player, "Finding someone new to play a game with you!")
 
-    print("[SERVERINFO] Game thread ended. Waiting for new players...")
+        print("[SERVERINFO] Game thread ended. Waiting for new players...")
 
 
 def manage_queues():
