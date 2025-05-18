@@ -164,7 +164,7 @@ def manage_queues():
             try:
                 player = incoming.get_nowait()
             except queue.Empty:
-                time.sleep(0.2)  # ✅ avoid busy loop but still retry
+                time.sleep(0.2)
                 continue
 
 
@@ -173,7 +173,7 @@ def manage_queues():
             if len(connectedPlayers) < 2:
                 if len(clientStorage) != 0:
                     print("Someone was waiting in the queue, adding them to the game and this connection to the queue.")
-                    newPlayerConnected = clientStorage.pop(0)
+                    newPlayerConnected = clientStorage.pop(0) # queue data structure instead of stack
                     connectedPlayers.append(player)
                     connectedPlayers.append(newPlayerConnected)
                     #clientStorage.append(player)
