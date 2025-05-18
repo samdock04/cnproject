@@ -445,6 +445,9 @@ def run_multi_player_round(clientOne, clientTwo):
     try:    
         while not gameOverPrompt[0]:
 
+            if gameOverPrompt[0]:
+                break
+
             # if invalidInput is 1, it's the current user's second+ attempt, so we've already received this message.
             if invalidInput == 0 and not sendWaitMsg: 
                 send("It's your opponent's turn, hang tight!", otherUser["writeFile"])
@@ -559,7 +562,7 @@ def run_multi_player_round(clientOne, clientTwo):
         print("did it reach here")
 
         gameOverPrompt[0] = True
-        return
+        raise Exception("Game ended due to disconnect or timeout")
 
 
 if __name__ == "__main__":
