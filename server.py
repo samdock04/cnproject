@@ -16,7 +16,7 @@ global gameOver
 global connectedPlayers 
 pause_clients = threading.Lock()
 
-TIMEOUT_SECS = 10
+TIMEOUT_SECS = 30
 
 
 # Send non-game related info, e.g to keep the connection up or to inform new clients of the wait time. 
