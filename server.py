@@ -174,8 +174,8 @@ def manage_queues():
                 if len(clientStorage) != 0:
                     print("Someone was waiting in the queue, adding them to the game and this connection to the queue.")
                     newPlayerConnected = clientStorage.pop(0) # queue data structure instead of stack
-                    connectedPlayers.append(player)
                     connectedPlayers.append(newPlayerConnected)
+                    connectedPlayers.append(player)
                     #clientStorage.append(player)
                     send_server_message(newPlayerConnected, "You've been added to the game!")
                 else: 
