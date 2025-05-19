@@ -101,11 +101,15 @@ def handle_game_clients(connectedPlayers):
     global gameStateTwo
 
     for client in connectedPlayers:
-        last_move_time[client["connection"]] = time.time()
+        last_move_time[client["connection"]] = 0
 
     gameOverPrompt[0] = False
     
     def monitor_timeout(player, opponent):
+
+        while last_move_time[player["connection"]] == 0:
+            time.sleep(0.5)
+
         while True:
             time.sleep(1)
             if gameOverPrompt[0]:
