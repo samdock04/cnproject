@@ -34,6 +34,22 @@ def send_server_message(player, msg):
     except Exception as e:
         print("[SERVERERROR] Could not send message.")
 
+def send_all_message(msg):
+    print(msg)
+    for client in connectedPlayers:
+        try:
+            client["writeFile"].write(msg+"\n")
+            client["writeFile"].flush()
+        except:
+            pass
+    for client in clientStorage:
+        try:
+            client["writeFile"].write(msg+'\n')
+            client["writeFile"].flush()
+        except:
+            pass
+
+
 def prompt_replay(player, result_queue):
     try:
         # set a timeout for the socket
@@ -83,6 +99,7 @@ def handle_game_clients(connectedPlayers):
     global newGame
     global gameStateOne
     global gameStateTwo
+
     for client in connectedPlayers:
         last_move_time[client["connection"]] = time.time()
 
@@ -113,7 +130,9 @@ def handle_game_clients(connectedPlayers):
     while True: 
         try:
             if newGame:
-                print("[INFO] A new game has started on this server!")
+                #print("[INFO] A new game has started on this server!")
+                start_msg = f"A new game has started between {connectedPlayers[0]['username']} and {connectedPlayers[1]['username']}!"
+                send_all_message(start_msg)
                 gameStateOne, gameStateTwo = run_multi_player_round(connectedPlayers[0], connectedPlayers[1], clientStorage, newGame, False, False)
             else:
                 print("[INFO] A game has resumed on this server!")
@@ -323,9 +342,9 @@ def manage_queues():
                     pass
             else:
                 if not any(p["username"] == player["username"] for p in connectedPlayers):
-                    print("[SEVERINFO] Game is in progress, adding this client to the queue. ")
+                    print("[SERVERINFO] Game is in progress, adding this client to the queue. ")
                     clientStorage.append(player)
-                    send_server_message(player, "[SERVERINFO] Thanks for joining - game in progress, you'll join when someone disconnects or a new game starts. You can be a spectator for now!")
+                    send_server_message(player, f"[SERVERINFO] Thanks for joining - game in progress between {connectedPlayers[0]['username']} and {connectedPlayers[1]['username']}, you'll join when someone disconnects or a new game starts. You can be a spectator for now!")
 
 
 
