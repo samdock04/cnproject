@@ -21,7 +21,7 @@ global gameStateOne
 global gameStateTwo
 pause_clients = threading.Lock()
 
-TIMEOUT_SECS = 10
+TIMEOUT_SECS = 30
 
 timeout_forfeit_occurred = threading.Event()
 
