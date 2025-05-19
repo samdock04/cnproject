@@ -539,6 +539,7 @@ def run_multi_player_round(clientOne, clientTwo, spectators, newGame, savedOne, 
                         send_board(otherUser["board"])
                         send(f"Congratulations! You sank all ships in {moves} moves.", currentUser["writeFile"])
                         send_to_both("The game is over. Would you like to play again?")
+                        send_to_spectators("A game has ended.")
                         gameOverPrompt[0] = True
                         return
                 elif result == 'miss':

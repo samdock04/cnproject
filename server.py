@@ -117,6 +117,10 @@ def handle_game_clients(connectedPlayers):
 
                     opponent["writeFile"].write("[!] Opponent has forfeited due to inactivity. You win!!\n")
                     opponent["writeFile"].flush()
+
+                    send_all_message(f"The current game has ended: {opponent['username']} won ({player['username']} disconnected).")
+
+
                 except:
                     pass
 
