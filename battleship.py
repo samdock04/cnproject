@@ -20,11 +20,18 @@ from collections import Counter
 BOARD_SIZE = 10
 SHIPS = [
     ("CARRIER", 5),
+    ("BATTLESHIP", 4)
+]
+
+"""
+SHIPS = [
+    ("CARRIER", 5),
     ("BATTLESHIP", 4),
     ("CRUISER", 3),
     ("SUBMARINE", 3),
     ("DESTROYER", 2)
 ]
+"""
 
 
 class DisconnectError(Exception):
@@ -550,12 +557,16 @@ def run_multi_player_round(clientOne, clientTwo, spectators, newGame, savedOne, 
 
    
         send_to_both("Welcome to battleships, both your boards have now been generated!!\n")
+        send_to_both("[SERVERINFO] You have 10 seconds each turn to make a move, or you will forfeit your game.\n")
 
         clientOne["board"] = boardOne
         clientTwo["board"] = boardTwo
 
         clientOne["moves"] = 0
         clientTwo["moves"] = 0
+
+        last_move_time[clientOne["connection"]] = time.time()
+        last_move_time[clientTwo["connection"]] = time.time()
 
     else:
         # Assign boards based on username to ensure correct mapping after reconnect
@@ -588,6 +599,7 @@ def run_multi_player_round(clientOne, clientTwo, spectators, newGame, savedOne, 
                 sendWaitMsg = True
                 send_board(otherUser["board"], currentUser["writeFile"])
                 send("It's your turn! Enter coordinate to fire at (e.g. B5):", currentUser["writeFile"])
+                send("[SERVERINFO] Reminder: You have 10 seconds to respond or you'll forfeit your turn.", currentUser["writeFile"])
 
             # set back to 1 later if we need to prompt the user again / they need another go. 
             invalidInput = 0
