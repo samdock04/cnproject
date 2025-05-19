@@ -36,10 +36,21 @@ def send_server_message(player, msg):
 
 def prompt_replay(player, result_queue):
     try:
+        # set a timeout for the socket
+        player["connection"].settimeout(10)
         while True:
             player["writeFile"].write("[!] The game is over. Do you want to play again? [y/n]\n")
             player["writeFile"].flush()
-            response = player["readFile"].readline()
+            try:
+                response = player["readFile"].readline()
+            except socket.timeout:
+                print(f"[REPLAY] Player {player['connection']} did not respond in time. Disconnecting")
+                result_queue.put((player, 'n'))
+                try:
+                    player["connection"].shutdown(socket.SHUT_RDWR)
+                    player["connection"].close()
+                except:
+                    pass
             if not response:
                 print(f"[REPLAY] No response from player {player['connection']}. Assuming 'n'.")
                 result_queue.put((player, 'n'))
@@ -56,6 +67,12 @@ def prompt_replay(player, result_queue):
     except Exception as e:
         print(f"[SERVERINFO] Error while prompting replay: {e}")
         result_queue.put((player, 'n'))
+    finally:
+        # remove timeout so doesn't affect other reads
+        try:
+            player["connection"].settimeout(None)
+        except:
+            pass
 
 def handle_game_clients(connectedPlayers):
     global clients
@@ -90,20 +107,6 @@ def handle_game_clients(connectedPlayers):
                 gameOverPrompt[0] = True
                 timeout_forfeit_occurred.set()
                 break
-
-
-                """
-                try:
-                    player["connection"].close()
-                except:
-                    pass
-                try:
-                    opponent["connection"].close()
-                except:
-                    pass
-                print(f"[SERVERINFO] Timeout for {client['connection']}. Forfeit...disconnecting.")
-                break
-                """
 
     t1 = threading.Thread(target=monitor_timeout, args=(connectedPlayers[0], connectedPlayers[1]))
     t1.start()
@@ -153,6 +156,7 @@ def handle_game_clients(connectedPlayers):
                                 pass
                     
                     print("Length of connected Players:", len(connectedPlayers), " and len of clientStorage: ", len(clientStorage))
+                    # If both current players don't want to replay ('n') and someone was waiting
                     if len(clientStorage) == 1 and len(connectedPlayers) == 0:
                         print("Someone was waiting in the queue, adding them to the game...")
                         waiting_player = clientStorage.pop(0)
@@ -161,6 +165,7 @@ def handle_game_clients(connectedPlayers):
                         send_server_message(waiting_player, "You've been added to the game!")
                         send_server_message(waiting_player, "Waiting for another player to join the game...")
 
+                    # If both current players don't want to replay, and the queue has more than 2 ppl waiting
                     elif len(clientStorage) >= 2:
                         player1 = clientStorage.pop(0)
                         player2 = clientStorage.pop(0)
@@ -169,6 +174,11 @@ def handle_game_clients(connectedPlayers):
                         print("[SERVERINFO] Starting next match with new players.")
                         gameThread = threading.Thread(target=handle_game_clients, args=(connectedPlayers,))
                         gameThread.start()
+                    
+                    # If both current players don't want to replay, and no one is in queue
+                    elif len(clientStorage) == 0 and len(connectedPlayers) == 0:
+                        print("[SERVERINFO] ")
+
 
                 return
             
@@ -321,6 +331,7 @@ def manage_queues():
 
 def handle_new_connection(conn, addr):
     global connectedPlayers, clientStorage, recentDisconnect, newGame
+    #global gameStateOne, gameStateTwo
 
     print(f"[SERVERINFO] New connection from {addr}")
     writeFile = conn.makefile('w')
@@ -336,6 +347,20 @@ def handle_new_connection(conn, addr):
      "writeFile": conn.makefile('w'),
      "username": username
     }
+    """
+    # need logic for restoring the gameState's
+    # encountering: [SERVERERROR] Error in game thread: 'board'
+    if username == gameStateOne.get("username", ""):
+        for key in ["board", "opponentBoard", "shots"]:
+            if key in gameStateOne:
+                player[key] = gameStateOne[key]
+    elif username == gameStateTwo.get("username", ""):
+        for key in ["board", "opponentBoard", "shots"]:
+            if key in gameStateTwo:
+                player[key] = gameStateTwo[key]
+
+    """
+
     with pause_clients:
         if player["username"] == recentDisconnect:
             connectedPlayers.append(player)
