@@ -21,7 +21,9 @@ global gameStateOne
 global gameStateTwo
 pause_clients = threading.Lock()
 
-TIMEOUT_SECS = 30
+TIMEOUT_SECS = 10
+
+timeout_forfeit_occurred = threading.Event()
 
 
 # Send non-game related info, e.g to keep the connection up or to inform new clients of the wait time. 
@@ -32,12 +34,39 @@ def send_server_message(player, msg):
     except Exception as e:
         print("[SERVERERROR] Could not send message.")
 
+def send_all_message(msg):
+    print(msg)
+    for client in connectedPlayers:
+        try:
+            client["writeFile"].write(msg+"\n")
+            client["writeFile"].flush()
+        except:
+            pass
+    for client in clientStorage:
+        try:
+            client["writeFile"].write(msg+'\n')
+            client["writeFile"].flush()
+        except:
+            pass
+
+
 def prompt_replay(player, result_queue):
     try:
+        # set a timeout for the socket
+        player["connection"].settimeout(10)
         while True:
             player["writeFile"].write("[!] The game is over. Do you want to play again? [y/n]\n")
             player["writeFile"].flush()
-            response = player["readFile"].readline()
+            try:
+                response = player["readFile"].readline()
+            except socket.timeout:
+                print(f"[REPLAY] Player {player['connection']} did not respond in time. Disconnecting")
+                result_queue.put((player, 'n'))
+                try:
+                    player["connection"].shutdown(socket.SHUT_RDWR)
+                    player["connection"].close()
+                except:
+                    pass
             if not response:
                 print(f"[REPLAY] No response from player {player['connection']}. Assuming 'n'.")
                 result_queue.put((player, 'n'))
@@ -54,6 +83,12 @@ def prompt_replay(player, result_queue):
     except Exception as e:
         print(f"[SERVERINFO] Error while prompting replay: {e}")
         result_queue.put((player, 'n'))
+    finally:
+        # remove timeout so doesn't affect other reads
+        try:
+            player["connection"].settimeout(None)
+        except:
+            pass
 
 def handle_game_clients(connectedPlayers):
     global clients
@@ -64,12 +99,17 @@ def handle_game_clients(connectedPlayers):
     global newGame
     global gameStateOne
     global gameStateTwo
+
     for client in connectedPlayers:
-        last_move_time[client["connection"]] = time.time()
+        last_move_time[client["connection"]] = 0
 
     gameOverPrompt[0] = False
     
     def monitor_timeout(player, opponent):
+
+        while last_move_time[player["connection"]] == 0:
+            time.sleep(0.5)
+
         while True:
             time.sleep(1)
             if gameOverPrompt[0]:
@@ -81,33 +121,26 @@ def handle_game_clients(connectedPlayers):
 
                     opponent["writeFile"].write("[!] Opponent has forfeited due to inactivity. You win!!\n")
                     opponent["writeFile"].flush()
+
+                    send_all_message(f"The current game has ended: {opponent['username']} won ({player['username']} disconnected).")
+
+
                 except:
                     pass
 
                 print(f"[SERVERINFO] Timeout for {player['connection']}. Forfeit...prompting.")
                 gameOverPrompt[0] = True
+                timeout_forfeit_occurred.set()
                 break
-
-
-                """
-                try:
-                    player["connection"].close()
-                except:
-                    pass
-                try:
-                    opponent["connection"].close()
-                except:
-                    pass
-                print(f"[SERVERINFO] Timeout for {client['connection']}. Forfeit...disconnecting.")
-                break
-                """
 
     t1 = threading.Thread(target=monitor_timeout, args=(connectedPlayers[0], connectedPlayers[1]))
     t1.start()
     while True: 
         try:
             if newGame:
-                print("[INFO] A new game has started on this server!")
+                #print("[INFO] A new game has started on this server!")
+                start_msg = f"A new game has started between {connectedPlayers[0]['username']} and {connectedPlayers[1]['username']}!"
+                send_all_message(start_msg)
                 gameStateOne, gameStateTwo = run_multi_player_round(connectedPlayers[0], connectedPlayers[1], clientStorage, newGame, False, False)
             else:
                 print("[INFO] A game has resumed on this server!")
@@ -118,19 +151,78 @@ def handle_game_clients(connectedPlayers):
         finally: 
             still_connected = []
             toRemove = []
-            #    Check who we can send messages to, to figure out who is still connected. 
-            for player in connectedPlayers:
-                try:
-                    player["writeFile"].write("[!] A client disconnected, waiting for them to rejoin...\n")
-                    player["writeFile"].flush()
-                except Exception as e:
-                    print("[SERVERERROR] Could not send message to player.")
+
+            if timeout_forfeit_occurred.is_set():
+                print("[SERVERINFO] Timeout forfeit occurred. Skipping reconnection wait")
+                timeout_forfeit_occurred.clear()
+                still_connected = connectedPlayers[:]
+
+                result_queue = queue.Queue()
+                threads = []
+
+                for player in still_connected:
+                    t = threading.Thread(target=prompt_replay, args=(player, result_queue))
+                    t.start()
+                    threads.append(t)
+
+                for t in threads:
+                   t.join()
+
+                with pause_clients:
+                    connectedPlayers.clear()
+                    while not result_queue.empty():
+                        player, response = result_queue.get()
+                        if response == 'y':
+                            clientStorage.append(player)
+                            send_server_message(player, "[SERVERINFO] You've been added back to the queue.")
+                        else:
+                            try:
+                                player["connection"].shutdown(socket.SHUT_RDWR)
+                                player["connection"].close()
+                            except:
+                                pass
+                    
+                    print("Length of connected Players:", len(connectedPlayers), " and len of clientStorage: ", len(clientStorage))
+                    # If both current players don't want to replay ('n') and someone was waiting
+                    if len(clientStorage) == 1 and len(connectedPlayers) == 0:
+                        print("Someone was waiting in the queue, adding them to the game...")
+                        waiting_player = clientStorage.pop(0)
+                        connectedPlayers.append(waiting_player)
+                        print(f"[SERVERINFO] Added player: {waiting_player['username']}")
+                        send_server_message(waiting_player, "You've been added to the game!")
+                        send_server_message(waiting_player, "Waiting for another player to join the game...")
+
+                    # If both current players don't want to replay, and the queue has more than 2 ppl waiting
+                    elif len(clientStorage) >= 2:
+                        player1 = clientStorage.pop(0)
+                        player2 = clientStorage.pop(0)
+                        connectedPlayers.extend([player1, player2])
+                        timeout_forfeit_occurred.clear()
+                        print("[SERVERINFO] Starting next match with new players.")
+                        gameThread = threading.Thread(target=handle_game_clients, args=(connectedPlayers,))
+                        gameThread.start()
+                    
+                    # If both current players don't want to replay, and no one is in queue
+                    elif len(clientStorage) == 0 and len(connectedPlayers) == 0:
+                        print("[SERVERINFO] ")
+
+
+                return
+            
+            else:
+                #    Check who we can send messages to, to figure out who is still connected. 
+                for player in connectedPlayers:
                     try:
-                        recentDisconnect = player["username"]
-                        player["connection"].close()
-                        toRemove.append(player)
-                    except:
-                        pass
+                        player["writeFile"].write("[!] A client disconnected, waiting for them to rejoin...\n")
+                        player["writeFile"].flush()
+                    except Exception as e:
+                        print("[SERVERERROR] Could not send message to player.")
+                        try:
+                            recentDisconnect = player["username"]
+                            player["connection"].close()
+                            toRemove.append(player)
+                        except:
+                            pass
             for player in toRemove:
                 connectedPlayers.remove(player)
             # Give them a chance to rejoin... 
@@ -150,7 +242,8 @@ def handle_game_clients(connectedPlayers):
                                 raise ConnectionError("Player disconnected")
                             prompt = prompt.strip().lower()
                             if prompt == 'y':                                
-                                still_connected.append(player)
+                                clientStorage.append(player)
+                                send_server_message(player, "[SERVERINFO] You've been added back to the queue.")
                                 break
                             elif prompt == 'n':
                                 player["connection"].shutdown( socket.SHUT_RDWR)
@@ -166,7 +259,8 @@ def handle_game_clients(connectedPlayers):
                             except:
                                 pass
                             break
-                 # Threads keep mucking up these lists
+                
+                # Threads keep mucking up these lists
                 with pause_clients: 
                     connectedPlayers.clear()
                     for player in still_connected:
@@ -174,14 +268,27 @@ def handle_game_clients(connectedPlayers):
                         returning_players.put(player)
                         # assume someone disconnected? 
                         send_server_message(player, "Finding someone new to play a game with you!")
-                    while len(connectedPlayers) < 2 and len(clientStorage) > 0:
-                        newPlayerConnected = clientStorage.pop(0)
-                        connectedPlayers.append(newPlayerConnected)
-                        send_server_message(newPlayerConnected, "You've been added to the game!")
-                    if len(connectedPlayers) == 2:
+
+                    if len(connectedPlayers) == 0 and len(clientStorage) >= 2:
+                        player1 = clientStorage.pop(0)
+                        player2 = clientStorage.pop(0)
+                        connectedPlayers.extend([player1, player2])
+                        timeout_forfeit_occurred.clear()
+                        print("[SERVERINFO] Starting next match with new players.")
                         gameThread = threading.Thread(target=handle_game_clients, args=(connectedPlayers,))
                         gameThread.start()
-                        print("[SERVERINFO] Game started on the server!")
+
+                    else:
+                        
+                        #print("Length of connected Players:", len(connectedPlayers), " and len of clientStorage: ", len(clientStorage))
+                        while len(connectedPlayers) < 2 and len(clientStorage) > 0:
+                            newPlayerConnected = clientStorage.pop(0)
+                            connectedPlayers.append(newPlayerConnected)
+                            send_server_message(newPlayerConnected, "You've been added to the game!")
+                        if len(connectedPlayers) == 2:
+                            gameThread = threading.Thread(target=handle_game_clients, args=(connectedPlayers,))
+                            gameThread.start()
+                            print("[SERVERINFO] Game started on the server!")
 
                 break
 
@@ -215,15 +322,15 @@ def manage_queues():
 
         with pause_clients:
 
-            while len(connectedPlayers) < 2 and len(clientStorage) > 0:
-                newPlayerConnected = clientStorage.pop(0)
-                connectedPlayers.append(newPlayerConnected)
-                send_server_message(newPlayerConnected, "You've been added to the game!")
+            #while len(connectedPlayers) < 2 and len(clientStorage) > 0:
+            #    newPlayerConnected = clientStorage.pop(0)
+            #    connectedPlayers.append(newPlayerConnected)
+            #    send_server_message(newPlayerConnected, "You've been added to the game!")
             # If there aren't enough players in the game. 
             if len(connectedPlayers) < 2:
                 if len(clientStorage) != 0:
                     print("Someone was waiting in the queue, adding them to the game and this connection to the queue.")
-                    newPlayerConnected = clientStorage.pop()
+                    newPlayerConnected = clientStorage.pop(0)
                     connectedPlayers.append(newPlayerConnected)
                     clientStorage.append(player)
                     send_server_message(newPlayerConnected, "You've been added to the game!")
@@ -243,14 +350,15 @@ def manage_queues():
                     pass
             else:
                 if not any(p["username"] == player["username"] for p in connectedPlayers):
-                    print("[SEVERINFO] Game is in progress, adding this client to the queue. ")
+                    print("[SERVERINFO] Game is in progress, adding this client to the queue. ")
                     clientStorage.append(player)
-                    send_server_message(player, "[SERVERINFO] Thanks for joining - game in progress, you'll join when someone disconnects or a new game starts. You can be a spectator for now!")
+                    send_server_message(player, f"[SERVERINFO] Thanks for joining - game in progress between {connectedPlayers[0]['username']} and {connectedPlayers[1]['username']}, you'll join when someone disconnects or a new game starts. You can be a spectator for now!")
 
 
 
 def handle_new_connection(conn, addr):
     global connectedPlayers, clientStorage, recentDisconnect, newGame
+    #global gameStateOne, gameStateTwo
 
     print(f"[SERVERINFO] New connection from {addr}")
     writeFile = conn.makefile('w')
@@ -266,6 +374,20 @@ def handle_new_connection(conn, addr):
      "writeFile": conn.makefile('w'),
      "username": username
     }
+    """
+    # need logic for restoring the gameState's
+    # encountering: [SERVERERROR] Error in game thread: 'board'
+    if username == gameStateOne.get("username", ""):
+        for key in ["board", "opponentBoard", "shots"]:
+            if key in gameStateOne:
+                player[key] = gameStateOne[key]
+    elif username == gameStateTwo.get("username", ""):
+        for key in ["board", "opponentBoard", "shots"]:
+            if key in gameStateTwo:
+                player[key] = gameStateTwo[key]
+
+    """
+
     with pause_clients:
         if player["username"] == recentDisconnect:
             connectedPlayers.append(player)

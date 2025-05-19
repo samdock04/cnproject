@@ -15,15 +15,23 @@ import threading
 import queue
 import time
 import select
+from collections import Counter
 
 BOARD_SIZE = 10
 SHIPS = [
-    ("Carrier", 5),
-    ("Battleship", 4),
-    ("Cruiser", 3),
-    ("Submarine", 3),
-    ("Destroyer", 2)
+    ("CARRIER", 5),
+    ("BATTLESHIP", 4)
 ]
+
+"""
+SHIPS = [
+    ("CARRIER", 5),
+    ("BATTLESHIP", 4),
+    ("CRUISER", 3),
+    ("SUBMARINE", 3),
+    ("DESTROYER", 2)
+]
+"""
 
 
 class DisconnectError(Exception):
@@ -238,6 +246,24 @@ class Board:
             row_str = " ".join(grid_to_print[r][c] for c in range(self.size))
             print(f"{row_label:2} {row_str}")
 
+    def get_display_string(self, show_hidden_board=False):
+        result = "  " + " ".join(str(i+1) for i in range(BOARD_SIZE)) + "\n"
+        for i in range(BOARD_SIZE):
+            row = chr(ord('A') + i)
+            result += row + " "
+            for j in range(BOARD_SIZE):
+                cell = self.display_grid[i][j]
+                if cell == " ":
+                    result += ". "
+                elif cell == "X":
+                    result += "X "
+                elif cell == "O":
+                    result += "O "
+                else:
+                    result += (cell + " ") if show_hidden_board else ". "
+            result += "\n"
+        return result
+
 
 def parse_coordinate(coord_str):
     """
@@ -264,6 +290,84 @@ def parse_coordinate(coord_str):
 
     return (row, col)
 
+# added for multiplayer ship placement
+def network_place_ships(board, readFile, writeFile):
+    
+    send("\nPlace your ships one-by-one. Format: PLACE A1 H Destroyer", writeFile)
+    send("[SERVERINFO] Example board layout below:", writeFile)
+    send("  " + " ".join(str(i+1) for i in range(BOARD_SIZE)), writeFile)
+    for i in range(BOARD_SIZE):
+        row_label = chr(ord('A') + i)
+        send(row_label + " " + ". " * BOARD_SIZE, writeFile)
+
+    ship_targets = Counter(s[0] for s in SHIPS)
+
+    # Track how many of each have been placed
+    ship_placed = Counter()
+
+    available = ', '.join([s[0] for s in SHIPS])
+    send(f"Available ships: {available}", writeFile)
+    #placed_ships = set()
+
+    while sum(ship_placed.values()) < len(SHIPS):
+        send(f"\n[SERVERINFO] Ships placed so far:", writeFile)
+        for ship in ship_targets:
+            placed = ship_placed.get(ship, 0)
+            total = ship_targets[ship]
+            send(f"  - {ship}: {placed} of {total}", writeFile)
+        send("Enter placement command:", writeFile)
+        msg = recv(readFile).strip()
+
+        try:
+            if not msg.startswith("PLACE"):
+                send("Invalid format. Use: PLACE A1 H DESTROYER", writeFile)
+                continue
+
+            _, coord, orient, shipname = msg.split()
+            shipname = shipname.upper()
+            row, col = parse_coordinate(coord.upper())
+            orientation = 0 if orient.upper() == 'H' else 1 if orient.upper() == 'V' else None
+
+            if shipname not in [s[0] for s in SHIPS]:
+                send(f"Unknown ship name. '{shipname}'. Available: {', '.join([s[0] for s in SHIPS])}", writeFile)
+                continue
+
+            if ship_placed[shipname] >= ship_targets[shipname]:
+                send(f"All {shipname} ships already placed.", writeFile)
+                continue
+
+            #if shipname in placed_ships:
+                #send("That ship is already placed.", writeFile)
+                #continue
+
+            
+
+            ship = next(s for s in SHIPS if s[0] == shipname)
+            if board.can_place_ship(row, col, ship[1], orientation):
+                positions = board.do_place_ship(row, col, ship[1], orientation)
+                board.placed_ships.append({"name": ship[0], "positions": positions})
+                #placed_ships.add(shipname)
+                ship_placed[shipname] += 1
+                orientation_full = "horizontally" if orientation == 0 else "vertically"
+                send(f"{shipname.capitalize()} placed at {coord.upper()} {orientation_full}.", writeFile)
+                remaining = ship_targets[shipname] - ship_placed[shipname]
+                send(f"[SERVERINFO] {ship_placed[shipname]} of {ship_targets[shipname]} {shipname}(s) placed. Remaining: {remaining}", writeFile)
+            else:
+                send("Invalid position. Try again.", writeFile)
+
+        except Exception as e:
+            send(f"Error: {e}", writeFile)
+
+    return board
+
+# for multiplayer ship placement
+def send(message, writeFile):
+    writeFile.write(message + "\n")
+    writeFile.flush()
+
+# for multiplayer ship placement
+def recv(readFile):
+    return readFile.readline().strip()
 
 def run_single_player_game_locally():
     """
@@ -433,20 +537,36 @@ def run_multi_player_round(clientOne, clientTwo, spectators, newGame, savedOne, 
 
     if newGame:
 
+        clientOne["writeFile"].write("[SERVERINFO] It's your turn to place ships.\n")
+        clientOne["writeFile"].flush()
+
+        clientTwo["writeFile"].write(f"[SERVERINFO] Please wait for {clientOne["username"]} to finish placing their ships.\n")
+        clientTwo["writeFile"].flush()
+
         boardOne = Board(BOARD_SIZE)
-        boardOne.place_ships_randomly(SHIPS)
+        network_place_ships(boardOne, clientOne["readFile"], clientOne["writeFile"])
+
+        clientTwo["writeFile"].write("[SERVERINFO] It's your turn to place ships.\n")
+        clientTwo["writeFile"].flush()
+
+        clientOne["writeFile"].write(f"[SERVERINFO] Please wait for {clientTwo["username"]} to finish placing their ships.\n")
+        clientOne["writeFile"].flush()
 
         boardTwo = Board(BOARD_SIZE)
-        boardTwo.place_ships_randomly(SHIPS)
+        network_place_ships(boardTwo, clientTwo["readFile"], clientTwo["writeFile"])
 
    
         send_to_both("Welcome to battleships, both your boards have now been generated!!\n")
+        send_to_both("[SERVERINFO] You have 10 seconds each turn to make a move, or you will forfeit your game.\n")
 
         clientOne["board"] = boardOne
         clientTwo["board"] = boardTwo
 
         clientOne["moves"] = 0
         clientTwo["moves"] = 0
+
+        last_move_time[clientOne["connection"]] = time.time()
+        last_move_time[clientTwo["connection"]] = time.time()
 
     else:
         # Assign boards based on username to ensure correct mapping after reconnect
@@ -479,6 +599,7 @@ def run_multi_player_round(clientOne, clientTwo, spectators, newGame, savedOne, 
                 sendWaitMsg = True
                 send_board(otherUser["board"], currentUser["writeFile"])
                 send("It's your turn! Enter coordinate to fire at (e.g. B5):", currentUser["writeFile"])
+                send("[SERVERINFO] Reminder: You have 10 seconds to respond or you'll forfeit your turn.", currentUser["writeFile"])
 
             # set back to 1 later if we need to prompt the user again / they need another go. 
             invalidInput = 0
@@ -539,6 +660,7 @@ def run_multi_player_round(clientOne, clientTwo, spectators, newGame, savedOne, 
                         send_board(otherUser["board"])
                         send(f"Congratulations! You sank all ships in {moves} moves.", currentUser["writeFile"])
                         send_to_both("The game is over. Would you like to play again?")
+                        send_to_spectators("A game has ended.")
                         gameOverPrompt[0] = True
                         return
                 elif result == 'miss':
