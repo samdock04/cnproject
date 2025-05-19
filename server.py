@@ -151,8 +151,17 @@ def handle_game_clients(connectedPlayers):
                                 player["connection"].close()
                             except:
                                 pass
-                        
-                    if len(clientStorage) >= 2:
+                    
+                    print("Length of connected Players:", len(connectedPlayers), " and len of clientStorage: ", len(clientStorage))
+                    if len(clientStorage) == 1 and len(connectedPlayers) == 0:
+                        print("Someone was waiting in the queue, adding them to the game...")
+                        waiting_player = clientStorage.pop(0)
+                        connectedPlayers.append(waiting_player)
+                        print(f"[SERVERINFO] Added player: {waiting_player['username']}")
+                        send_server_message(waiting_player, "You've been added to the game!")
+                        send_server_message(waiting_player, "Waiting for another player to join the game...")
+
+                    elif len(clientStorage) >= 2:
                         player1 = clientStorage.pop(0)
                         player2 = clientStorage.pop(0)
                         connectedPlayers.extend([player1, player2])
@@ -213,22 +222,6 @@ def handle_game_clients(connectedPlayers):
                             except:
                                 pass
                             break
-                """      
-                connectedPlayers.clear()
-
-                # Start the next match if two players are in the queue
-                if len(clientStorage) >= 2:
-                    player1 = clientStorage.pop(0)
-                    player2 = clientStorage.pop(0)
-                    connectedPlayers.extend([player1, player2])
-
-                    print("[SERVERINFO] Starting next match with new players.")
-                    gameThread = threading.Thread(target=handle_game_clients, args=(connectedPlayers,))
-                    gameThread.start()
-                else:
-                    print("[SERVERINFO] Waiting for more players to join the queue.")
-                
-                """
                 
                 # Threads keep mucking up these lists
                 with pause_clients: 
@@ -239,7 +232,7 @@ def handle_game_clients(connectedPlayers):
                         # assume someone disconnected? 
                         send_server_message(player, "Finding someone new to play a game with you!")
 
-                    if len(clientStorage) >= 2:
+                    if len(connectedPlayers) == 0 and len(clientStorage) >= 2:
                         player1 = clientStorage.pop(0)
                         player2 = clientStorage.pop(0)
                         connectedPlayers.extend([player1, player2])
@@ -249,7 +242,8 @@ def handle_game_clients(connectedPlayers):
                         gameThread.start()
 
                     else:
-
+                        
+                        #print("Length of connected Players:", len(connectedPlayers), " and len of clientStorage: ", len(clientStorage))
                         while len(connectedPlayers) < 2 and len(clientStorage) > 0:
                             newPlayerConnected = clientStorage.pop(0)
                             connectedPlayers.append(newPlayerConnected)
